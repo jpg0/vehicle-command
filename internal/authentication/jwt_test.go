@@ -6,8 +6,6 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-const testVIN = "0123456789abcdefX"
-
 func TestVerify(t *testing.T) {
 	pkey := []byte{
 		0x04, 0x77, 0x5e, 0x2e, 0xf5, 0x70, 0xd2, 0x92, 0xdf, 0x42, 0x4c, 0x09,
@@ -18,7 +16,7 @@ func TestVerify(t *testing.T) {
 		0x1b, 0x44, 0x98, 0x93, 0xec,
 	}
 	signedToken := "eyJhbGciOiJUZXNsYS5TUzI1NiIsInR5cCI6IkpXVCJ9.eyJhdWQiOiJjb20udGVzbGEudmVoaWNsZS5NM1RFUkFTSElNQUJVQ0swMSIsImZvbyI6ImJhciIsImlzcyI6IkJIZGVMdlZ3MHBMZlFrd0o5dzU5bFdlTlhPZUJKS3l6K1RkYkdZcE5xZm5wOE14dGlBNHVZRzZiQWJENllzWVZEamNhcGRqMzhKeko0YjA2RzBTWWsrdz0ifQ.4Xq2tsynDYOhLBWpnqLJfsAzdOqTOwHkVowI47A-yzVXIQHaawObJvAYRoRs61oVwWiEQ7XYXG8WE_Vz_49eVirAV9NGKymj3HBTTjN5DmViWmFzfaIOXRWKJlE--vzU"
-	token, err := jwt.Parse(signedToken, func(token *jwt.Token) (interface{}, error) { return pkey, nil })
+	token, err := jwt.Parse(signedToken, func(_ *jwt.Token) (interface{}, error) { return pkey, nil })
 	if err != nil {
 		t.Fatal(err)
 	}

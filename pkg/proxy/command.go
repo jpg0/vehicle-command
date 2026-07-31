@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/teslamotors/vehicle-command/pkg/connector/inet"
@@ -32,6 +33,25 @@ var (
 		vehicle.SeatThirdRowLeft,
 		vehicle.SeatThirdRowRight,
 	}
+
+	dayNamesBitMask = map[string]int32{
+		"SUN":       1,
+		"SUNDAY":    1,
+		"MON":       2,
+		"MONDAY":    2,
+		"TUES":      4,
+		"TUESDAY":   4,
+		"WED":       8,
+		"WEDNESDAY": 8,
+		"THURS":     16,
+		"THURSDAY":  16,
+		"FRI":       32,
+		"FRIDAY":    32,
+		"SAT":       64,
+		"SATURDAY":  64,
+		"ALL":       127,
+		"WEEKDAYS":  62,
+	}
 )
 
 // RequestParameters allows simple type check
@@ -49,6 +69,18 @@ func ExtractCommandAction(ctx context.Context, command string, params RequestPar
 		return func(v *vehicle.Vehicle) error { return v.SetVolume(ctx, float32(volume)) }, nil
 	case "remote_boombox":
 		return nil, ErrCommandNotImplemented
+	case "media_next_fav":
+		return func(v *vehicle.Vehicle) error { return v.MediaNextFavorite(ctx) }, nil
+	case "media_prev_fav":
+		return func(v *vehicle.Vehicle) error { return v.MediaPreviousFavorite(ctx) }, nil
+	case "media_next_track":
+		return func(v *vehicle.Vehicle) error { return v.MediaNextTrack(ctx) }, nil
+	case "media_prev_track":
+		return func(v *vehicle.Vehicle) error { return v.MediaPreviousTrack(ctx) }, nil
+	case "media_volume_down":
+		return func(v *vehicle.Vehicle) error { return v.VolumeDown(ctx) }, nil
+	case "media_volume_up":
+		return func(v *vehicle.Vehicle) error { return v.VolumeUp(ctx) }, nil
 	case "media_toggle_playback":
 		return func(v *vehicle.Vehicle) error { return v.ToggleMediaPlayback(ctx) }, nil
 	// Climate Controls
@@ -180,7 +212,19 @@ func ExtractCommandAction(ctx context.Context, command string, params RequestPar
 		return func(v *vehicle.Vehicle) error { return v.CloseTonneau(ctx) }, nil
 	case "stop_tonneau":
 		return func(v *vehicle.Vehicle) error { return v.StopTonneau(ctx) }, nil
-	// Charging controls
+	// Power-management controls
+	case "set_low_power_mode":
+		on, err := params.getBool("enable", true)
+		if err != nil {
+			return nil, err
+		}
+		return func(v *vehicle.Vehicle) error { return v.SetLowPowerMode(ctx, on) }, nil
+	case "keep_accessory_power_mode":
+		on, err := params.getBool("enable", true)
+		if err != nil {
+			return nil, err
+		}
+		return func(v *vehicle.Vehicle) error { return v.SetKeepAccessoryPowerMode(ctx, on) }, nil
 	case "charge_standard":
 		return func(v *vehicle.Vehicle) error { return v.ChargeStandardRange(ctx) }, nil
 	case "charge_start":
@@ -238,12 +282,128 @@ func ExtractCommandAction(ctx context.Context, command string, params RequestPar
 		return func(v *vehicle.Vehicle) error {
 			return v.ScheduleDeparture(ctx, departureTime, endOffPeakTime, preconditionPolicy, offPeakPolicy)
 		}, nil
+	case "add_charge_schedule":
+		lat, err := params.getNumber("lat", true)
+		if err != nil {
+			return nil, err
+		}
+		lon, err := params.getNumber("lon", true)
+		if err != nil {
+			return nil, err
+		}
+		startTime, err := params.getNumber("start_time", false)
+		if err != nil {
+			return nil, err
+		}
+		startEnabled, err := params.getBool("start_enabled", true)
+		if err != nil {
+			return nil, err
+		}
+		endTime, err := params.getNumber("end_time", false)
+		if err != nil {
+			return nil, err
+		}
+		endEnabled, err := params.getBool("end_enabled", true)
+		if err != nil {
+			return nil, err
+		}
+		daysOfWeek, err := params.getDays("days_of_week", true)
+		if err != nil {
+			return nil, err
+		}
+		id, err := params.getNumber("id", false)
+		if err != nil {
+			return nil, err
+		}
+		idUint64 := uint64(id)
+		if id == 0 {
+			idUint64 = uint64(time.Now().Unix())
+		}
+		enabled, err := params.getBool("enabled", true)
+		if err != nil {
+			return nil, err
+		}
+		oneTime, err := params.getBool("one_time", false)
+		if err != nil {
+			return nil, err
+		}
+		schedule := vehicle.ChargeSchedule{
+			DaysOfWeek:   daysOfWeek,
+			Latitude:     float32(lat),
+			Longitude:    float32(lon),
+			Id:           idUint64,
+			StartTime:    int32(startTime),
+			EndTime:      int32(endTime),
+			StartEnabled: startEnabled,
+			EndEnabled:   endEnabled,
+			Enabled:      enabled,
+			OneTime:      oneTime,
+		}
+		return func(v *vehicle.Vehicle) error { return v.AddChargeSchedule(ctx, &schedule) }, nil
+	case "add_precondition_schedule":
+		lat, err := params.getNumber("lat", true)
+		if err != nil {
+			return nil, err
+		}
+		lon, err := params.getNumber("lon", true)
+		if err != nil {
+			return nil, err
+		}
+		preconditionTime, err := params.getNumber("precondition_time", true)
+		if err != nil {
+			return nil, err
+		}
+		oneTime, err := params.getBool("one_time", false)
+		if err != nil {
+			return nil, err
+		}
+		daysOfWeek, err := params.getDays("days_of_week", true)
+		if err != nil {
+			return nil, err
+		}
+		id, err := params.getNumber("id", false)
+		if err != nil {
+			return nil, err
+		}
+		idUint64 := uint64(id)
+		if id == 0 {
+			idUint64 = uint64(time.Now().Unix())
+		}
+		enabled, err := params.getBool("enabled", true)
+		if err != nil {
+			return nil, err
+		}
+		schedule := vehicle.PreconditionSchedule{
+			DaysOfWeek:       daysOfWeek,
+			Latitude:         float32(lat),
+			Longitude:        float32(lon),
+			Id:               idUint64,
+			PreconditionTime: int32(preconditionTime),
+			OneTime:          oneTime,
+			Enabled:          enabled,
+		}
+		return func(v *vehicle.Vehicle) error { return v.AddPreconditionSchedule(ctx, &schedule) }, nil
+	case "remove_charge_schedule":
+		id, err := params.getNumber("id", true)
+		if err != nil {
+			return nil, err
+		}
+		return func(v *vehicle.Vehicle) error { return v.RemoveChargeSchedule(ctx, uint64(id)) }, nil
+	case "remove_precondition_schedule":
+		id, err := params.getNumber("id", true)
+		if err != nil {
+			return nil, err
+		}
+		return func(v *vehicle.Vehicle) error { return v.RemovePreconditionSchedule(ctx, uint64(id)) }, nil
 	case "set_managed_charge_current_request":
 		return nil, ErrCommandUseRESTAPI
 	case "set_managed_charger_location":
 		return nil, ErrCommandUseRESTAPI
 	case "set_managed_scheduled_charging_time":
 		return nil, ErrCommandUseRESTAPI
+	case "wake_up":
+		return func(v *vehicle.Vehicle) error { return v.Wakeup(ctx) }, nil
+	// Security
 	case "set_pin_to_drive":
 		on, err := params.getBool("on", true)
 		if err != nil {
@@ -254,9 +414,8 @@ func ExtractCommandAction(ctx context.Context, command string, params RequestPar
 			return nil, err
 		}
 		return func(v *vehicle.Vehicle) error { return v.SetPINToDrive(ctx, on, password) }, nil
-	case "wake_up":
-		return func(v *vehicle.Vehicle) error { return v.Wakeup(ctx) }, nil
-	// Security
+	case "clear_pin_to_drive_admin":
+		return func(v *vehicle.Vehicle) error { return v.ClearPINToDrive(ctx) }, nil
 	case "door_lock":
 		return func(v *vehicle.Vehicle) error { return v.Lock(ctx) }, nil
 	case "door_unlock":
@@ -264,7 +423,7 @@ func ExtractCommandAction(ctx context.Context, command string, params RequestPar
 	case "erase_user_data":
 		return func(v *vehicle.Vehicle) error { return v.EraseGuestData(ctx) }, nil
 	case "reset_pin_to_drive_pin":
-		return func(v *vehicle.Vehicle) error { return v.ResetPIN(ctx) }, nil
+		return func(v *vehicle.Vehicle) error { return v.ResetPIN(ctx) }, nil //nolint:all
 	case "reset_valet_pin":
 		return func(v *vehicle.Vehicle) error { return v.ResetValetPin(ctx) }, nil
 	case "guest_mode":
@@ -288,7 +447,10 @@ func ExtractCommandAction(ctx context.Context, command string, params RequestPar
 		if err != nil {
 			return nil, err
 		}
-		return func(v *vehicle.Vehicle) error { return v.SetValetMode(ctx, on, password) }, nil
+		if on {
+			return func(v *vehicle.Vehicle) error { return v.EnableValetMode(ctx, password) }, nil
+		}
+		return func(v *vehicle.Vehicle) error { return v.DisableValetMode(ctx) }, nil
 	case "set_vehicle_name":
 		name, err := params.getString("vehicle_name", true)
 		if err != nil {
@@ -313,12 +475,50 @@ func ExtractCommandAction(ctx context.Context, command string, params RequestPar
 			return nil, err
 		}
 		return func(v *vehicle.Vehicle) error { return v.ClearSpeedLimitPIN(ctx, pin) }, nil
+	case "speed_limit_clear_pin_admin":
+		return func(v *vehicle.Vehicle) error { return v.ClearSpeedLimitPINAdminAction(ctx) }, nil
 	case "speed_limit_set_limit":
 		speedMPH, err := params.getNumber("limit_mph", true)
 		if err != nil {
 			return nil, err
 		}
 		return func(v *vehicle.Vehicle) error { return v.SpeedLimitSetLimitMPH(ctx, speedMPH) }, nil
+	case "parental_controls_activate":
+		pin, err := params.getString("pin", true)
+		if err != nil {
+			return nil, err
+		}
+		return func(v *vehicle.Vehicle) error { return v.ParentalControlsActivate(ctx, pin) }, nil
+	case "parental_controls_deactivate":
+		pin, err := params.getString("pin", true)
+		if err != nil {
+			return nil, err
+		}
+		return func(v *vehicle.Vehicle) error { return v.ParentalControlsDeactivate(ctx, pin) }, nil
+	case "parental_controls_enable_setting":
+		settingStr, err := params.getString("setting", true)
+		if err != nil {
+			return nil, err
+		}
+		settingVal, ok := carserver.ParentalControlsEnableSettingsAction_ParentalControlsSetting_E_value[settingStr]
+		if !ok {
+			return nil, &protocol.NominalError{Details: fmt.Errorf("invalid setting: %s", settingStr)}
+		}
+		enable, err := params.getBool("enable", true)
+		if err != nil {
+			return nil, err
+		}
+		return func(v *vehicle.Vehicle) error {
+			return v.ParentalControlsEnableSetting(ctx, vehicle.ParentalControlsSetting(settingVal), enable)
+		}, nil
+	case "parental_controls_set_speed_limit":
+		limitMPH, err := params.getNumber("limit_mph", true)
+		if err != nil {
+			return nil, err
+		}
+		return func(v *vehicle.Vehicle) error { return v.ParentalControlsSetSpeedLimit(ctx, limitMPH) }, nil
+	case "parental_controls_clear_pin_admin":
+		return func(v *vehicle.Vehicle) error { return v.ParentalControlsClearPIN(ctx) }, nil
 	case "trigger_homelink":
 		lat, err := params.getNumber("lat", true)
 		if err != nil {
@@ -359,7 +559,7 @@ func ExtractCommandAction(ctx context.Context, command string, params RequestPar
 			return nil, errors.New("command must be 'vent' or 'close'")
 		}
 	default:
-		return nil, &inet.HttpError{Code: http.StatusBadRequest, Message: "{\"response\":null,\"error\":\"invalid_command\",\"error_description\":\"\"}"}
+		return nil, &inet.HTTPError{Code: http.StatusBadRequest, Message: "{\"response\":null,\"error\":\"invalid_command\",\"error_description\":\"\"}"}
 	}
 }
 
@@ -410,6 +610,23 @@ func (p RequestParameters) getNumber(key string, required bool) (float64, error)
 	}
 
 	return 0, missingParamError(key)
+}
+
+func (p RequestParameters) getDays(key string, required bool) (int32, error) {
+	daysStr, err := p.getString(key, required)
+	if err != nil {
+		return 0, err
+	}
+
+	var mask int32
+	for _, d := range strings.Split(daysStr, ",") {
+		if v, ok := dayNamesBitMask[strings.TrimSpace(strings.ToUpper(d))]; ok {
+			mask |= v
+		} else {
+			return 0, fmt.Errorf("unrecognized day name: %v", d)
+		}
+	}
+	return mask, nil
 }
 
 func (p RequestParameters) getPolicy(enabledKey string, weekdaysOnlyKey string) (vehicle.ChargingPolicy, error) {

@@ -16,6 +16,7 @@ import (
 	"github.com/teslamotors/vehicle-command/internal/log"
 	"github.com/teslamotors/vehicle-command/pkg/account"
 	"github.com/teslamotors/vehicle-command/pkg/cli"
+	"github.com/teslamotors/vehicle-command/pkg/connector/ble"
 	"github.com/teslamotors/vehicle-command/pkg/protocol"
 	"github.com/teslamotors/vehicle-command/pkg/vehicle"
 )
@@ -121,6 +122,11 @@ func main() {
 
 	config.RegisterCommandLineFlags()
 	flag.Parse()
+	if !debug {
+		if debugEnv, ok := os.LookupEnv("TESLA_VERBOSE"); ok {
+			debug = debugEnv != "false" && debugEnv != "0"
+		}
+	}
 	if debug {
 		log.SetLevel(log.LevelDebug)
 	}
@@ -141,11 +147,10 @@ func main() {
 			info.Usage(args[1])
 			status = 0
 			return
-		} else {
-			if err := configureFlags(config, args[0], forceBLE); err != nil {
-				writeErr("Missing required flag: %s", err)
-				return
-			}
+		}
+		if err := configureFlags(config, args[0], forceBLE); err != nil {
+			writeErr("Missing required flag: %s", err)
+			return
 		}
 	}
 
@@ -159,12 +164,10 @@ func main() {
 
 	acct, car, err := config.Connect(ctx)
 	if err != nil {
-		writeErr("Error: %s", err)
-		// Error isn't wrapped so we have to check for a substring explicitly.
-		if strings.Contains(err.Error(), "operation not permitted") {
-			// The underlying BLE package calls HCIDEVDOWN on the BLE device, presumably as a
-			// heavy-handed way of dealing with devices that are in a bad state.
-			writeErr("\nTry again after granting this application CAP_NET_ADMIN:\n\n\tsudo setcap 'cap_net_admin=eip' \"$(which %s)\"\n", os.Args[0])
+		if ble.IsAdapterError(err) {
+			writeErr("%s", ble.AdapterErrorHelpMessage(err))
+		} else {
+			writeErr("Error: %s", err)
 		}
 		return
 	}
